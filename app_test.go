@@ -392,7 +392,6 @@ func TestApp_CommandWithFlagBeforeTerminator(t *testing.T) {
 	app.Commands = []Command{command}
 
 	app.Run([]string{"", "cmd", "my-arg", "--option", "my-option", "--", "--notARealFlag"})
-
 	expect(t, parsedOption, "my-option")
 	expect(t, args[0], "my-arg")
 	expect(t, args[1], "--")

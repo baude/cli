@@ -115,57 +115,27 @@ func (c Command) Run(ctx *Context) (err error) {
 		return err
 	}
 	set.SetOutput(ioutil.Discard)
-
+	firstFlagIndex, terminatorIndex := getIndexes(ctx)
+	flagArgs, regularArgs := getAllArgs(ctx, firstFlagIndex, terminatorIndex)
+	if c.UseShortOptionHandling {
+		flagArgs = translateShortOptions(flagArgs)
+	}
 	if c.SkipFlagParsing {
-		err = set.Parse(append([]string{"--"}, ctx.Args().Tail()...))
+			err = set.Parse(append([]string{"--"}, ctx.Args().Tail()...))
 	} else if !c.SkipArgReorder {
-		firstFlagIndex := -1
-		terminatorIndex := -1
-		for index, arg := range ctx.Args() {
-			if arg == "--" {
-				terminatorIndex = index
-				break
-			} else if arg == "-" {
-				// Do nothing. A dash alone is not really a flag.
-				continue
-			} else if strings.HasPrefix(arg, "-") && firstFlagIndex == -1 {
-				firstFlagIndex = index
-			}
-		}
-
 		if firstFlagIndex > -1 {
-			args := ctx.Args()
-			regularArgs := make([]string, len(args[1:firstFlagIndex]))
-			copy(regularArgs, args[1:firstFlagIndex])
-
-			var flagArgs []string
-			if terminatorIndex > -1 {
-				flagArgs = args[firstFlagIndex:terminatorIndex]
-				regularArgs = append(regularArgs, args[terminatorIndex:]...)
-			} else {
-				flagArgs = args[firstFlagIndex:]
-			}
-			// separate combined flags
-			if c.UseShortOptionHandling {
-				var flagArgsSeparated []string
-				for _, flagArg := range flagArgs {
-					if strings.HasPrefix(flagArg, "-") && strings.HasPrefix(flagArg, "--") == false && len(flagArg) > 2 {
-						for _, flagChar := range flagArg[1:] {
-							flagArgsSeparated = append(flagArgsSeparated, "-"+string(flagChar))
-						}
-					} else {
-						flagArgsSeparated = append(flagArgsSeparated, flagArg)
-					}
-				}
-				err = set.Parse(append(flagArgsSeparated, regularArgs...))
-			} else {
-				err = set.Parse(append(flagArgs, regularArgs...))
-			}
+			//flagArgs, regularArgs := getAllArgs(ctx, firstFlagIndex, terminatorIndex)
+			//err = set.Parse(append(regularArgs, flagArgs...))
+			err = set.Parse(append(flagArgs, regularArgs...))
 		} else {
 			err = set.Parse(ctx.Args().Tail())
 		}
 	} else {
-		err = set.Parse(ctx.Args().Tail())
+		if c.UseShortOptionHandling {
+			err = set.Parse(append(regularArgs, flagArgs...))
+		} else {
+			err = set.Parse(flagArgs)
+		}
 	}
 
 	nerr := normalizeFlags(c.Flags, set)
@@ -233,6 +203,77 @@ func (c Command) Run(ctx *Context) (err error) {
 	return err
 }
 
+func getIndexes(ctx *Context) (int, int){
+	firstFlagIndex := -1
+	terminatorIndex := -1
+	for index, arg := range ctx.Args() {
+		if arg == "--" {
+			terminatorIndex = index
+			break
+		} else if arg == "-" {
+			// Do nothing. A dash alone is not really a flag.
+			continue
+		} else if strings.HasPrefix(arg, "-") && firstFlagIndex == -1 {
+			firstFlagIndex = index
+		}
+	}
+	if len(ctx.Args()) > 0 && !strings.HasPrefix(ctx.Args()[0], "-") && firstFlagIndex == -1{
+		return -1, -1
+	}
+
+	return firstFlagIndex, terminatorIndex
+
+}
+
+func copySlice(slice []string, start, end int) []string{
+	var newSlice []string
+	for i := start; i < end; i++ {
+		newSlice = append(newSlice, slice[i])
+	}
+	return newSlice
+}
+
+func getAllArgs(ctx *Context, firstFlagIndex, terminatorIndex int) (Args, []string) {
+	args := ctx.Args()
+	var regularArgs []string
+	// if there are no options, the we set the index to 1 manually
+	if firstFlagIndex == -1 {
+		firstFlagIndex = 1
+		//copy(regularArgs, args[0:])
+		regularArgs = copySlice(args, 0, len(args))
+	}else {
+		//copy(regularArgs, args[1:firstFlagIndex])
+		regularArgs = copySlice(args, 1, firstFlagIndex)
+	}
+	var flagArgs []string
+	if terminatorIndex > -1 {
+		//flagArgs = args[firstFlagIndex:terminatorIndex]
+		flagArgs = copySlice(args, firstFlagIndex, terminatorIndex)
+		additionalRegularArgs := copySlice(args, terminatorIndex, len(args))
+		regularArgs = append(regularArgs, additionalRegularArgs...)
+		for _, i := range additionalRegularArgs {
+			regularArgs = append(regularArgs, i)
+		}
+	} else {
+		flagArgs = args[firstFlagIndex:]
+	}
+	return flagArgs, regularArgs
+}
+
+func translateShortOptions(flagArgs Args) ([]string) {
+	// separate combined flags
+	var flagArgsSeparated []string
+	for _, flagArg := range flagArgs {
+		if strings.HasPrefix(flagArg, "-") && strings.HasPrefix(flagArg, "--") == false && len(flagArg) > 2 {
+			for _, flagChar := range flagArg[1:] {
+				flagArgsSeparated = append(flagArgsSeparated, "-"+string(flagChar))
+			}
+		} else {
+			flagArgsSeparated = append(flagArgsSeparated, flagArg)
+		}
+	}
+	return flagArgsSeparated
+}
 // Names returns the names including short names and aliases.
 func (c Command) Names() []string {
 	names := []string{c.Name}
